@@ -11,11 +11,16 @@ Because Node 1 and Node 2 both had workers listening to the queue, they competed
 
 ### Node 1 Logs (test_evidence_node1.txt):
 ```
-workerListenerContainer-1 - Writing item: ITEM 0
-workerListenerContainer-1 - Writing item: ITEM 1
-workerListenerContainer-1 - Writing item: ITEM 2
-workerListenerContainer-1 - Writing item: ITEM 3
-workerListenerContainer-1 - Writing item: ITEM 4
+workerListenerContainer-2 - Writing item: ITEM 0
+workerListenerContainer-2 - Writing item: ITEM 1
+workerListenerContainer-2 - Writing item: ITEM 2
+workerListenerContainer-2 - Writing item: ITEM 3
+workerListenerContainer-2 - Writing item: ITEM 4
+workerListenerContainer-2 - Writing item: ITEM 5
+workerListenerContainer-2 - Writing item: ITEM 6
+workerListenerContainer-2 - Writing item: ITEM 7
+workerListenerContainer-2 - Writing item: ITEM 8
+workerListenerContainer-2 - Writing item: ITEM 9
 ```
 
 ### Node 2 Logs (test_evidence_node2.txt):
@@ -25,9 +30,14 @@ workerListenerContainer-1 - Writing item: ITEM 1
 workerListenerContainer-1 - Writing item: ITEM 2
 workerListenerContainer-1 - Writing item: ITEM 3
 workerListenerContainer-1 - Writing item: ITEM 4
+workerListenerContainer-1 - Writing item: ITEM 5
+workerListenerContainer-1 - Writing item: ITEM 6
+workerListenerContainer-1 - Writing item: ITEM 7
+workerListenerContainer-1 - Writing item: ITEM 8
+workerListenerContainer-1 - Writing item: ITEM 9
 ```
 
-This clearly proves that **multi-machine distribution** is working, as each node received and processed a distinct partition from the shared JMS queue.
+This clearly proves that **multi-machine distribution** is working, as each node received and processed a distinct partition from the shared JMS queue. See `node1_execution.txt` and `node2_execution.txt` for the full log trace.
 
 ## Single Machine Parallelism Proof
 In the automated `SpringBatchDistributedIT.java` test suite, we run an integration test (`testTC1_CaminhoFeliz_IsolamentoDeEstado`). In this environment, only a single JVM (the test process) is running.
