@@ -24,7 +24,7 @@ import org.springframework.jms.listener.DefaultMessageListenerContainer;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.integration.annotation.ServiceActivator;
 
-import javax.jms.ConnectionFactory;
+import jakarta.jms.ConnectionFactory;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
