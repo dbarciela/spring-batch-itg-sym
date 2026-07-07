@@ -50,6 +50,10 @@ public class BatchSymmetricDistribuidoConfig {
         this.workerFactory = workerFactory;
     }
 
+    /* ==========================================================================
+     * 1. INFRAESTRUTURA PARTILHADA (Canais em Memoria)
+     * ========================================================================== */
+
     @Bean
     public DirectChannel outboundRequestsChannel() {
         return new DirectChannel();
@@ -57,18 +61,23 @@ public class BatchSymmetricDistribuidoConfig {
 
     @Bean
     public QueueChannel inboundRepliesChannel() {
-        return new QueueChannel();
+        return new QueueChannel(); // Onde o Orquestrador espera e agrega as respostas
     }
 
     @Bean
     public DirectChannel inboundRequestsChannel() {
-        return new DirectChannel();
+        return new DirectChannel(); // Onde o Trabalhador recebe a mensagem limpa
     }
 
     @Bean
     public DirectChannel outboundRepliesChannel() {
-        return new DirectChannel();
+        return new DirectChannel(); // Onde o Trabalhador envia a resposta de volta
     }
+
+    /* ==========================================================================
+     * 2. O LADO DO ORQUESTRADOR (MANAGER)
+     * Resolve o TC 3.1, 4.1 e 4.2 (Isolamento com Temporary Queues)
+     * ========================================================================== */
 
     @Bean
     public Job jobSimetrico(Step managerStep) {
@@ -81,10 +90,9 @@ public class BatchSymmetricDistribuidoConfig {
     public Step managerStep(Partitioner meuPartitioner) {
         return managerFactory.get("managerStep")
                 .partitioner("workerStep", meuPartitioner)
-                .gridSize(1) // Keep grid size 1 to prevent H2 locking issues for the test
-                .outputChannel(outboundRequestsChannel())
-                .inputChannel(inboundRepliesChannel())
-                .pollInterval(10) // Small poll interval for quick test
+                .gridSize(10)
+                .outputChannel(outboundRequestsChannel()) // Envia os pedidos
+                .inputChannel(inboundRepliesChannel())    // Espera respostas agregadas
                 .build();
     }
 
@@ -94,13 +102,21 @@ public class BatchSymmetricDistribuidoConfig {
         JmsOutboundGateway gateway = new JmsOutboundGateway();
         gateway.setConnectionFactory(connectionFactory);
         gateway.setRequestDestinationName(REQUEST_QUEUE);
+
+        // A MAGIA DO ISOLAMENTO:
+        // Ao omiter gateway.setReplyDestinationName(), o Spring cria a Temporary Queue
+        // e injeta o cabecalho JMSReplyTo. Zero sobreposicao de execucoes.
         gateway.setReplyChannel(inboundRepliesChannel());
-        gateway.setReceiveTimeout(5000);
+        gateway.setReceiveTimeout(60000);
         gateway.setRequiresReply(true);
-        // Important: Extract the correlation ID
         gateway.setCorrelationKey("JMSCorrelationID");
         return gateway;
     }
+
+    /* ==========================================================================
+     * 3. O LADO DO TRABALHADOR (WORKER)
+     * Resolve o TC 2.1 e 5.2 (Best Efforts 1 Phase Commit sem XA)
+     * ========================================================================== */
 
     @Bean
     public DefaultMessageListenerContainer workerListenerContainer(
@@ -111,11 +127,16 @@ public class BatchSymmetricDistribuidoConfig {
         container.setConnectionFactory(connectionFactory);
         container.setDestinationName(REQUEST_QUEUE);
 
-        // Disable session transacted for the H2 test but include it in comments for production
-        // container.setTransactionManager(transactionManager);
-        // container.setSessionTransacted(true);
+        // A MAGIA DA TOLERANCIA A FALHAS (1PC):
+        // Injetamos o gestor de transacoes da Base de Dados.
+        // A mensagem JMS so tem o Acknowledge efetuado SE o commit na base de dados tiver sucesso.
+        container.setTransactionManager(transactionManager);
+        container.setSessionTransacted(true);
 
-        container.setConcurrentConsumers(1);
+        // Permite a JVM local processar varias particoes em simultaneo
+        container.setConcurrentConsumers(2);
+        container.setMaxConcurrentConsumers(5);
+        container.setCacheLevel(DefaultMessageListenerContainer.CACHE_CONSUMER);
 
         return container;
     }
@@ -126,9 +147,9 @@ public class BatchSymmetricDistribuidoConfig {
         listener.setRequestChannel(inboundRequestsChannel());
         listener.setReplyChannel(outboundRepliesChannel());
         listener.setExpectReply(true);
-        // Ensure correlation id is copied
         listener.setCorrelationKey("JMSCorrelationID");
 
+        // O gateway deteta o JMSReplyTo e devolve o estado para a fila temporaria do Master exato
         return new JmsMessageDrivenEndpoint(listenerContainer, listener);
     }
 
@@ -137,12 +158,16 @@ public class BatchSymmetricDistribuidoConfig {
         return workerFactory.get("workerStep")
                 .inputChannel(inboundRequestsChannel())
                 .outputChannel(outboundRepliesChannel())
-                .<String, String>chunk(5)
+                .<String, String>chunk(100)
                 .reader(meuItemReader())
                 .processor(meuItemProcessor())
                 .writer(meuItemWriter())
                 .build();
     }
+
+    /* ==========================================================================
+     * 4. LOGICA DE NEGOCIO (STUBS)
+     * ========================================================================== */
 
     @Bean
     public Partitioner meuPartitioner() {
@@ -160,7 +185,8 @@ public class BatchSymmetricDistribuidoConfig {
     @Bean
     public ItemReader<String> meuItemReader() {
         List<String> items = new ArrayList<>();
-        for (int i = 0; i < 5; i++) {
+        // Reduced to 10 for visibility in logs, even with chunk 100
+        for (int i = 0; i < 10; i++) {
             items.add("Item " + i);
         }
         return new ListItemReader<>(items);
@@ -168,14 +194,22 @@ public class BatchSymmetricDistribuidoConfig {
 
     @Bean
     public ItemProcessor<String, String> meuItemProcessor() {
-        return item -> item.toUpperCase();
+        return item -> {
+            try {
+                // Simulate some work taking 1 second per item so we can kill processes
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return item.toUpperCase();
+        };
     }
 
     @Bean
     public ItemWriter<String> meuItemWriter() {
         return items -> {
             for (String item : items) {
-                System.out.println("Writing item: " + item);
+                System.out.println(Thread.currentThread().getName() + " - Writing item: " + item);
             }
         };
     }

@@ -9,11 +9,14 @@ import org.springframework.batch.core.launch.JobLauncher;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.TestPropertySource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @SpringBootTest
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
+// Start the embedded broker specifically for the test so it doesn't fail trying to connect to a nonexistent TCP broker
+@TestPropertySource(properties = {"embedded.broker=true"})
 public class BatchSymmetricDistribuidoConfigIntegrationTest {
 
     @Autowired
